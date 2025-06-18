@@ -13,9 +13,12 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_id: ${{ steps.create_release.outputs.id }}
       release_version: ${{ env.RELEASE_VERSION }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
       - name: Get release version from tag
         run: |
           echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
@@ -23,12 +26,9 @@ jobs:
       
       - name: Create Release
         id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_VERSION }}
-          release_name: 🦫 TLSferret ${{ env.RELEASE_VERSION }}
+          name: 🦫 TLSferret ${{ env.RELEASE_VERSION }}
           body: |
             # 🦫 TLSferret ${{ env.RELEASE_VERSION }}
             
@@ -65,9 +65,10 @@ jobs:
             
             ## Checksums
             
-            SHA256 checksums are provided in `checksums.txt`.
+            SHA256 checksums are provided for security verification.
           draft: false
           prerelease: false
+          generate_release_notes: true
 
   build-release:
     name: Build Release
@@ -186,46 +187,8 @@ jobs:
           fi
         shell: bash
 
-      - name: Upload build artifacts [Windows]
-        if: matrix.build.OS == 'windows-2019'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload build artifacts
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip
-          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip
-          asset_content_type: application/zip
-
-      - name: Upload build artifacts [Windows SHA256]
-        if: matrix.build.OS == 'windows-2019'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip.sha256
-          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip.sha256
-          asset_content_type: text/plain
-
-      - name: Upload build artifacts [-nix]
-        if: matrix.build.OS != 'windows-2019'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz
-          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload build artifacts [-nix SHA256]
-        if: matrix.build.OS != 'windows-2019'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz.sha256
-          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz.sha256
-          asset_content_type: text/plain
+          files: |
+            tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.*
