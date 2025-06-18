@@ -86,33 +86,33 @@ jobs:
           # Linux
           - {
               NAME: linux-x64-gnu,
-              OS: ubuntu-20.04,
+              OS: ubuntu-24.04,
               TOOLCHAIN: stable,
               TARGET: x86_64-unknown-linux-gnu,
             }
           - {
               NAME: linux-arm64-gnu,
-              OS: ubuntu-20.04,
+              OS: ubuntu-24.04,
               TOOLCHAIN: stable,
               TARGET: aarch64-unknown-linux-gnu,
             }
           # macOS
           - {
               NAME: darwin-x64,
-              OS: macos-12,
+              OS: macos-latest,
               TOOLCHAIN: stable,
               TARGET: x86_64-apple-darwin,
             }
           - {
               NAME: darwin-arm64,
-              OS: macos-12,
+              OS: macos-latest,
               TOOLCHAIN: stable,
               TARGET: aarch64-apple-darwin,
             }
           # Windows
           - {
               NAME: windows-x64,
-              OS: windows-2019,
+              OS: windows-latest,
               TOOLCHAIN: stable,
               TARGET: x86_64-pc-windows-msvc,
             }
@@ -159,7 +159,7 @@ jobs:
         run: ${{ env.CARGO }} build --release --locked --target ${{ matrix.build.TARGET }}
 
       - name: Strip binary (linux and macos)
-        if: matrix.build.OS == 'ubuntu-20.04' || matrix.build.OS == 'macos-12'
+        if: matrix.build.OS == 'ubuntu-24.04' || matrix.build.OS == 'macos-latest'
         run: |
           if [ "${{ matrix.build.TARGET }}" = "aarch64-unknown-linux-gnu" ]; then
             sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
@@ -169,14 +169,14 @@ jobs:
           fi
 
       - name: Prepare build artifacts [Windows]
-        if: matrix.build.OS == 'windows-2019'
+        if: matrix.build.OS == 'windows-latest'
         run: |
           cd target/${{ matrix.build.TARGET }}/release
           7z a ../../../tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip tlsferret.exe
           cd -
 
       - name: Prepare build artifacts [-nix]
-        if: matrix.build.OS != 'windows-2019'
+        if: matrix.build.OS != 'windows-latest'
         run: |
           cd target/${{ matrix.build.TARGET }}/release
           tar czvf ../../../tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz tlsferret
@@ -184,7 +184,7 @@ jobs:
 
       - name: Generate SHA256
         run: |
-          if [ "${{ matrix.build.OS }}" = "windows-2019" ]; then
+          if [ "${{ matrix.build.OS }}" = "windows-latest" ]; then
             certutil -hashfile tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip SHA256 | grep -E [A-Fa-f0-9]{64} > tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip.sha256
           else
             shasum -a 256 tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz > tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz.sha256
