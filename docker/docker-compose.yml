@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  heartbleed-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.heartbleed
+    container_name: heartbleed-test-server
+    ports:
+      - "8443:8443"
+    networks:
+      - test-network
+    restart: unless-stopped
+    
+  # Optional: Add a patched server for comparison
+  secure-server:
+    image: nginx:alpine
+    container_name: secure-test-server
+    ports:
+      - "8444:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - test-network
+    restart: unless-stopped
+    depends_on:
+      - heartbleed-server
+
+networks:
+  test-network:
+    driver: bridge
