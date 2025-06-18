@@ -1,6 +1,6 @@
-use std::fmt;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TlsVersion {
@@ -45,7 +45,7 @@ impl TlsVersion {
 
     /// Get rustls protocol version
     #[allow(dead_code)]
-    pub fn to_rustls_version(&self) -> Option<&'static rustls::SupportedProtocolVersion> {
+    pub fn to_rustls_version(self) -> Option<&'static rustls::SupportedProtocolVersion> {
         match self {
             Self::Tls12 => Some(&rustls::version::TLS12),
             Self::Tls13 => Some(&rustls::version::TLS13),
@@ -104,8 +104,8 @@ pub struct ProtocolSupport {
 }
 
 pub mod handshake {
-    use bytes::BytesMut;
     use super::TlsVersion;
+    use bytes::BytesMut;
 
     /// Build a ClientHello message for testing specific TLS versions
     #[allow(dead_code)]

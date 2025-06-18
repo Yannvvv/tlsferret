@@ -1,14 +1,14 @@
 // src/legacy_scanner.rs
+use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use std::time::Duration;
-use anyhow::{Result, Context};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_native_tls::{TlsConnector, native_tls};
+use tokio_native_tls::{native_tls, TlsConnector};
 use tracing::info;
 
-use crate::protocol::{TlsVersion, ProtocolSupport};
 use crate::cipher::CipherInfo;
+use crate::protocol::{ProtocolSupport, TlsVersion};
 
 pub struct LegacyScanner {
     target: SocketAddr,
@@ -18,12 +18,16 @@ pub struct LegacyScanner {
 
 impl LegacyScanner {
     pub fn new(target: SocketAddr, hostname: String, timeout: Duration) -> Self {
-        Self { target, hostname, timeout }
+        Self {
+            target,
+            hostname,
+            timeout,
+        }
     }
 
     pub async fn test_legacy_protocol(&self, version: TlsVersion) -> ProtocolSupport {
         info!("Testing {} support using native-tls", version);
-        
+
         match self.connect_with_version(version).await {
             Ok(_) => ProtocolSupport {
                 version,
@@ -34,14 +38,14 @@ impl LegacyScanner {
                 version,
                 supported: false,
                 error: Some(e.to_string()),
-            }
+            },
         }
     }
 
     async fn connect_with_version(&self, version: TlsVersion) -> Result<()> {
         // Create native-tls configuration
         let mut builder = native_tls::TlsConnector::builder();
-        
+
         // Set protocol version
         match version {
             TlsVersion::Ssl2 => {
@@ -71,20 +75,16 @@ impl LegacyScanner {
         let connector = TlsConnector::from(connector);
 
         // Establish TCP connection
-        let tcp_stream = timeout(
-            self.timeout,
-            TcpStream::connect(&self.target)
-        ).await
-        .context("Connection timeout")?
-        .context("Failed to establish TCP connection")?;
+        let tcp_stream = timeout(self.timeout, TcpStream::connect(&self.target))
+            .await
+            .context("Connection timeout")?
+            .context("Failed to establish TCP connection")?;
 
         // TLS handshake
-        let _tls_stream = timeout(
-            self.timeout,
-            connector.connect(&self.hostname, tcp_stream)
-        ).await
-        .context("TLS handshake timeout")?
-        .context("TLS handshake failed")?;
+        let _tls_stream = timeout(self.timeout, connector.connect(&self.hostname, tcp_stream))
+            .await
+            .context("TLS handshake timeout")?
+            .context("TLS handshake failed")?;
 
         Ok(())
     }
@@ -221,14 +221,18 @@ impl LegacyScanner {
 }
 
 // SSLv2 special handling (if needed)
-pub async fn test_sslv2(target: SocketAddr, _hostname: &str, timeout_duration: Duration) -> ProtocolSupport {
+pub async fn test_sslv2(
+    target: SocketAddr,
+    _hostname: &str,
+    timeout_duration: Duration,
+) -> ProtocolSupport {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    
+
     info!("Testing SSLv2 support with custom implementation");
-    
+
     // SSLv2 ClientHello format
     let client_hello = build_sslv2_client_hello();
-    
+
     match timeout(timeout_duration, TcpStream::connect(&target)).await {
         Ok(Ok(mut stream)) => {
             // Send SSLv2 ClientHello
@@ -239,7 +243,7 @@ pub async fn test_sslv2(target: SocketAddr, _hostname: &str, timeout_duration: D
                     error: Some(format!("Failed to send SSLv2 ClientHello: {}", e)),
                 };
             }
-            
+
             // Read response
             let mut buffer = vec![0u8; 1024];
             match timeout(Duration::from_secs(2), stream.read(&mut buffer)).await {
@@ -249,46 +253,50 @@ pub async fn test_sslv2(target: SocketAddr, _hostname: &str, timeout_duration: D
                     ProtocolSupport {
                         version: TlsVersion::Ssl2,
                         supported,
-                        error: if supported { None } else { Some("No SSLv2 response".to_string()) },
+                        error: if supported {
+                            None
+                        } else {
+                            Some("No SSLv2 response".to_string())
+                        },
                     }
                 }
                 _ => ProtocolSupport {
                     version: TlsVersion::Ssl2,
                     supported: false,
                     error: Some("No response to SSLv2 ClientHello".to_string()),
-                }
+                },
             }
         }
         _ => ProtocolSupport {
             version: TlsVersion::Ssl2,
             supported: false,
             error: Some("Failed to connect".to_string()),
-        }
+        },
     }
 }
 
 fn build_sslv2_client_hello() -> Vec<u8> {
     // SSLv2 CLIENT-HELLO format
     let mut hello = Vec::new();
-    
+
     // Length (2 bytes) - will be updated
     hello.extend_from_slice(&[0x80, 0x2e]);
-    
+
     // Message Type: CLIENT-HELLO (1)
     hello.push(0x01);
-    
+
     // Version: SSL 2.0 (0x0002)
     hello.extend_from_slice(&[0x00, 0x02]);
-    
+
     // Cipher Spec Length
     hello.extend_from_slice(&[0x00, 0x15]);
-    
+
     // Session ID Length
     hello.extend_from_slice(&[0x00, 0x00]);
-    
+
     // Challenge Length
     hello.extend_from_slice(&[0x00, 0x10]);
-    
+
     // Cipher Specs (7 ciphers * 3 bytes each = 21 bytes)
     hello.extend_from_slice(&[
         0x01, 0x00, 0x80, // SSL2_RC4_128_WITH_MD5
@@ -299,13 +307,13 @@ fn build_sslv2_client_hello() -> Vec<u8> {
         0x06, 0x00, 0x40, // SSL2_DES_64_CBC_WITH_MD5
         0x07, 0x00, 0xc0, // SSL2_DES_192_EDE3_CBC_WITH_MD5
     ]);
-    
+
     // Challenge (16 random bytes)
     hello.extend_from_slice(&[
-        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-        0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+        0x00,
     ]);
-    
+
     hello
 }
 
@@ -314,16 +322,16 @@ fn is_sslv2_response(data: &[u8]) -> bool {
     if data.len() < 3 {
         return false;
     }
-    
+
     // SSLv2 format: the highest bit of the first byte should be 1
     if data[0] & 0x80 == 0 {
         return false;
     }
-    
+
     // Check if message type is SERVER-HELLO (4)
     if data.len() > 2 && data[2] == 0x04 {
         return true;
     }
-    
+
     false
 }

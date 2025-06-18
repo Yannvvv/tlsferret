@@ -5,16 +5,16 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tracing::info;
 
-mod scanner;
-mod protocol;
-mod cipher;
 mod certificate;
-mod output;
+mod cipher;
 mod legacy_scanner;
+mod output;
+mod protocol;
+mod scanner;
 mod starttls;
 
-use scanner::SslScanner;
 use output::OutputFormat;
+use scanner::SslScanner;
 
 /// A fast SSL/TLS scanner written in Rust
 #[derive(Parser, Debug)]
@@ -86,7 +86,7 @@ fn parse_tls_version(s: &str) -> Result<protocol::TlsVersion, String> {
         "tls1.1" | "tlsv1.1" | "1.1" => Ok(protocol::TlsVersion::Tls11),
         "tls1.2" | "tlsv1.2" | "1.2" => Ok(protocol::TlsVersion::Tls12),
         "tls1.3" | "tlsv1.3" | "1.3" => Ok(protocol::TlsVersion::Tls13),
-        _ => Err(format!("Unknown TLS version: {}", s))
+        _ => Err(format!("Unknown TLS version: {}", s)),
     }
 }
 
@@ -112,7 +112,7 @@ fn parse_target(target: &str, default_port: u16) -> (String, u16) {
             }
         }
     }
-    
+
     // No port specified or failed to parse
     (target.to_string(), default_port)
 }
@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
         2 => "debug",
         _ => "trace",
     };
-    
+
     tracing_subscriber::fmt()
         .with_env_filter(format!("tlsferret={}", log_level))
         .init();
@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
     if args.format == OutputFormat::Text {
         println!("{}", "SSL/TLS Scanner - Rust Edition".bold().cyan());
         println!("{}", "==============================".cyan());
-        
+
         // Print rustls and native-tls version info
         let tls_version_info = get_tls_version_info();
         println!("{} {}", "Powered by:".dimmed(), tls_version_info.green());
@@ -156,14 +156,15 @@ async fn main() -> Result<()> {
 
     // Parse target (hostname:port or just hostname)
     let (hostname, port) = parse_target(&args.target, 443);
-    
+
     // Resolve target
     let target_addr = resolve_target(&hostname, port, args.ipv4, args.ipv6).await?;
-    
+
     info!("Scanning target: {}", target_addr);
     if args.format == OutputFormat::Text {
-        println!("Testing SSL/TLS on {}:{}", 
-            args.sni_name.as_ref().unwrap_or(&hostname), 
+        println!(
+            "Testing SSL/TLS on {}:{}",
+            args.sni_name.as_ref().unwrap_or(&hostname),
             port
         );
         println!();
@@ -207,9 +208,8 @@ async fn resolve_target(
     ipv4_only: bool,
     ipv6_only: bool,
 ) -> Result<SocketAddr> {
-    
     use trust_dns_resolver::TokioAsyncResolver;
-    
+
     // Try to parse as IP address first
     if let Ok(ip) = target.parse::<IpAddr>() {
         return Ok(SocketAddr::new(ip, port));
@@ -218,9 +218,9 @@ async fn resolve_target(
     // Resolve hostname
     let resolver = TokioAsyncResolver::tokio_from_system_conf()?;
     let response = resolver.lookup_ip(target).await?;
-    
+
     let ips: Vec<IpAddr> = response.iter().collect();
-    
+
     let ip = if ipv4_only {
         ips.into_iter()
             .find(|ip| ip.is_ipv4())
@@ -242,26 +242,25 @@ async fn resolve_target(
 fn get_tls_version_info() -> String {
     // Get tlsferret version from cargo metadata
     let tlsferret_version = env!("CARGO_PKG_VERSION");
-    
+
     // Parse Cargo.toml to get dependency versions
     let (rustls_version, crypto_info, native_tls_version) = parse_dependency_versions();
-    
-    format!("rustls {} + {} | native-tls {} | tlsferret v{}", 
-            rustls_version, 
-            crypto_info,
-            native_tls_version,
-            tlsferret_version)
+
+    format!(
+        "rustls {} + {} | native-tls {} | tlsferret v{}",
+        rustls_version, crypto_info, native_tls_version, tlsferret_version
+    )
 }
 
 /// Parse dependency versions from Cargo.toml
 fn parse_dependency_versions() -> (String, String, String) {
     // Include Cargo.toml content at compile time
     let cargo_toml = include_str!("../Cargo.toml");
-    
+
     let mut rustls_version = "unknown".to_string();
     let mut native_tls_version = "unknown".to_string();
     let mut has_post_quantum = false;
-    
+
     // Parse dependency versions from Cargo.toml
     for line in cargo_toml.lines() {
         let line = line.trim();
@@ -279,7 +278,8 @@ fn parse_dependency_versions() -> (String, String, String) {
             if let Some(version_start) = line.find('"') {
                 let version_start = version_start + 1;
                 if let Some(version_end) = line[version_start..].find('"') {
-                    native_tls_version = line[version_start..version_start + version_end].to_string();
+                    native_tls_version =
+                        line[version_start..version_start + version_end].to_string();
                 }
             }
         }
@@ -288,13 +288,13 @@ fn parse_dependency_versions() -> (String, String, String) {
             has_post_quantum = true;
         }
     }
-    
+
     // Detect crypto provider and post-quantum support
     let crypto_info = if has_post_quantum {
         "aws-lc-rs (post-quantum)".to_string()
     } else {
         "aws-lc-rs".to_string()
     };
-    
+
     (rustls_version, crypto_info, native_tls_version)
 }

@@ -1,15 +1,17 @@
+use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use anyhow::{Result, Context};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_rustls::{TlsConnector, rustls};
+use tokio_rustls::{rustls, TlsConnector};
 use tracing::{debug, info, warn};
 
-use crate::protocol::{TlsVersion, StartTlsProtocol, ProtocolSupport};
-use crate::cipher::{CipherInfo, CipherSuiteResult, get_rustls_cipher_suites, rustls_to_cipher_info};
 use crate::certificate::CertificateInfo;
+use crate::cipher::{
+    get_rustls_cipher_suites, rustls_to_cipher_info, CipherInfo, CipherSuiteResult,
+};
+use crate::protocol::{ProtocolSupport, StartTlsProtocol, TlsVersion};
 use crate::starttls::StartTlsHandler;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -67,7 +69,11 @@ impl SslScanner {
     }
 
     pub async fn scan(&self) -> Result<ScanResults> {
-        info!("Starting SSL/TLS scan of {}:{}", self.config.hostname, self.config.target.port());
+        info!(
+            "Starting SSL/TLS scan of {}:{}",
+            self.config.hostname,
+            self.config.target.port()
+        );
 
         let mut results = ScanResults {
             target: self.config.target.to_string(),
@@ -132,7 +138,7 @@ impl SslScanner {
 
         for version in versions {
             info!("Testing {} support", version);
-            
+
             let result = match version {
                 TlsVersion::Tls12 | TlsVersion::Tls13 => {
                     // Test with rustls
@@ -142,8 +148,9 @@ impl SslScanner {
                     crate::legacy_scanner::test_sslv2(
                         self.config.target,
                         &self.config.hostname,
-                        self.config.timeout
-                    ).await
+                        self.config.timeout,
+                    )
+                    .await
                 }
                 TlsVersion::Ssl3 | TlsVersion::Tls10 | TlsVersion::Tls11 => {
                     let legacy_scanner = crate::legacy_scanner::LegacyScanner::new(
@@ -180,7 +187,7 @@ impl SslScanner {
         }
 
         let connector = TlsConnector::from(Arc::new(config));
-        
+
         match self.connect_with_timeout(connector).await {
             Ok(_) => ProtocolSupport {
                 version,
@@ -191,32 +198,32 @@ impl SslScanner {
                 version,
                 supported: false,
                 error: Some(e.to_string()),
-            }
+            },
         }
     }
 
     async fn test_cipher_suites(&self) -> Result<Vec<CipherSuiteResult>> {
         let mut results = Vec::new();
-        
+
         // Get all available cipher suites
         let cipher_suites = get_rustls_cipher_suites();
-        
+
         for suite in cipher_suites {
             debug!("Testing cipher suite: {:?}", suite);
-            
+
             // Create config with only this cipher suite
             let _config = rustls::ClientConfig::builder()
                 .dangerous()
                 .with_custom_certificate_verifier(Arc::new(AcceptAllVerifier))
                 .with_no_client_auth();
-            
+
             // Note: rustls doesn't allow configuring individual cipher suites easily
             // This is a limitation compared to OpenSSL-based scanners
             // For now, we'll test with default configurations
-            
+
             // Let rustls_to_cipher_info determine the correct TLS version
             let cipher_info = rustls_to_cipher_info(suite);
-            
+
             // In a real implementation, we'd test each cipher individually
             // For now, mark all rustls default ciphers as supported
             results.push(CipherSuiteResult {
@@ -225,12 +232,12 @@ impl SslScanner {
                 preferred: false,
             });
         }
-        
+
         // Mark the first successful cipher as preferred
         if let Some(first) = results.first_mut() {
             first.preferred = true;
         }
-        
+
         Ok(results)
     }
 
@@ -242,7 +249,7 @@ impl SslScanner {
             .with_no_client_auth();
 
         let connector = TlsConnector::from(Arc::new(config));
-        
+
         match self.connect_with_timeout(connector).await {
             Ok(_) => {
                 // Extract certificates from the collector
@@ -257,39 +264,32 @@ impl SslScanner {
     }
 
     async fn connect_with_timeout(&self, connector: TlsConnector) -> Result<()> {
-        let mut tcp_stream = timeout(
-            self.config.timeout,
-            TcpStream::connect(&self.config.target)
-        ).await
-        .context("Connection timeout")?
-        .context("Failed to establish TCP connection")?;
+        let mut tcp_stream = timeout(self.config.timeout, TcpStream::connect(&self.config.target))
+            .await
+            .context("Connection timeout")?
+            .context("Failed to establish TCP connection")?;
 
         // Handle STARTTLS if configured
         if let Some(starttls) = &self.config.starttls {
-            StartTlsHandler::perform_starttls(
-                &mut tcp_stream,
-                *starttls,
-                self.config.timeout
-            ).await?;
+            StartTlsHandler::perform_starttls(&mut tcp_stream, *starttls, self.config.timeout)
+                .await?;
         }
 
         let domain = rustls_pki_types::ServerName::try_from(self.config.hostname.as_str())
             .map_err(|_| anyhow::anyhow!("Invalid hostname"))?
             .to_owned();
 
-        let _tls_stream = timeout(
-            self.config.timeout,
-            connector.connect(domain, tcp_stream)
-        ).await
-        .context("TLS handshake timeout")?
-        .context("TLS handshake failed")?;
+        let _tls_stream = timeout(self.config.timeout, connector.connect(domain, tcp_stream))
+            .await
+            .context("TLS handshake timeout")?
+            .context("TLS handshake failed")?;
 
         Ok(())
     }
 
     async fn test_key_exchange_groups(&self) -> Result<Vec<KeyExchangeGroup>> {
         let mut groups = Vec::new();
-        
+
         // Define known key exchange groups with their properties
         let known_groups = vec![
             ("X25519", "x25519", false),
@@ -327,14 +327,14 @@ impl SslScanner {
         // 1. First check if server supports TLS 1.3
         // 2. Then try to connect with TLS 1.2 and TLS_FALLBACK_SCSV
         // 3. If server properly implements SCSV, it should reject the connection
-        
+
         // First, check if server supports TLS 1.3
         let supports_tls13 = self.check_tls_version_support(TlsVersion::Tls13).await;
         if !supports_tls13 {
             // If server doesn't support TLS 1.3, test with TLS 1.2 -> TLS 1.1 fallback
             return self.test_fallback_scsv_tls12_to_tls11().await;
         }
-        
+
         // Server supports TLS 1.3, test TLS 1.3 -> TLS 1.2 fallback
         self.test_fallback_scsv_tls13_to_tls12().await
     }
@@ -347,15 +347,15 @@ impl SslScanner {
     async fn test_fallback_scsv_tls13_to_tls12(&self) -> Option<bool> {
         // Try to connect with TLS 1.2 and indicate we support TLS 1.3
         // If SCSV is supported, server should reject this connection
-        
+
         // Note: rustls doesn't easily allow us to inject TLS_FALLBACK_SCSV
         // This is a simplified implementation that would need lower-level TLS control
         // For now, we'll assume modern servers support SCSV if they support TLS 1.3
-        
+
         info!("Testing TLS Fallback SCSV (TLS 1.3 -> TLS 1.2)");
-        
+
         // Since we can't easily test the actual SCSV with rustls,
-        // we'll do a heuristic: modern servers that support TLS 1.3 
+        // we'll do a heuristic: modern servers that support TLS 1.3
         // are likely to support Fallback SCSV
         Some(true)
     }
@@ -364,7 +364,7 @@ impl SslScanner {
         // Test TLS 1.2 -> TLS 1.1 fallback
         let supports_tls12 = self.check_tls_version_support(TlsVersion::Tls12).await;
         let supports_tls11 = self.check_tls_version_support(TlsVersion::Tls11).await;
-        
+
         if supports_tls12 && supports_tls11 {
             info!("Testing TLS Fallback SCSV (TLS 1.2 -> TLS 1.1)");
             // Similar limitation - assume support if both versions work
@@ -378,33 +378,35 @@ impl SslScanner {
     async fn test_tls_renegotiation(&self) -> TlsRenegotiation {
         // Test various aspects of TLS renegotiation
         info!("Testing TLS renegotiation capabilities");
-        
+
         let mut renegotiation = TlsRenegotiation {
             secure_renegotiation: None,
             client_initiated_renegotiation: None,
             compression_supported: None,
         };
-        
+
         // Test secure renegotiation (RFC 5746)
         renegotiation.secure_renegotiation = self.test_secure_renegotiation().await;
-        
+
         // Test client-initiated renegotiation
-        renegotiation.client_initiated_renegotiation = self.test_client_initiated_renegotiation().await;
-        
+        renegotiation.client_initiated_renegotiation =
+            self.test_client_initiated_renegotiation().await;
+
         // Test TLS compression (CRIME vulnerability)
         renegotiation.compression_supported = self.test_tls_compression().await;
-        
+
         renegotiation
     }
 
     async fn test_secure_renegotiation(&self) -> Option<bool> {
         // Test if server supports secure renegotiation (RFC 5746)
         // This extension prevents renegotiation attacks
-        
+
         // With rustls, secure renegotiation is typically enabled by default
         // We can infer support based on successful TLS connections
-        if self.check_tls_version_support(TlsVersion::Tls12).await ||
-           self.check_tls_version_support(TlsVersion::Tls13).await {
+        if self.check_tls_version_support(TlsVersion::Tls12).await
+            || self.check_tls_version_support(TlsVersion::Tls13).await
+        {
             // Modern TLS implementations typically support secure renegotiation
             Some(true)
         } else {
@@ -416,13 +418,13 @@ impl SslScanner {
     async fn test_client_initiated_renegotiation(&self) -> Option<bool> {
         // Test if server allows client-initiated renegotiation
         // This can be a security risk (DoS attacks)
-        
+
         // Note: TLS 1.3 doesn't support renegotiation, only TLS 1.2 and below
         if self.check_tls_version_support(TlsVersion::Tls13).await {
             // TLS 1.3 doesn't support renegotiation
             return Some(false);
         }
-        
+
         if self.check_tls_version_support(TlsVersion::Tls12).await {
             // For TLS 1.2, we would need to establish a connection and attempt renegotiation
             // This is complex with rustls, so we'll use a heuristic:
@@ -436,11 +438,12 @@ impl SslScanner {
     async fn test_tls_compression(&self) -> Option<bool> {
         // Test if server supports TLS compression (CRIME vulnerability - CVE-2012-4929)
         // Modern servers should have this disabled
-        
+
         // rustls doesn't support TLS compression, and modern servers disable it
         // If we can connect with rustls, compression is likely disabled
-        if self.check_tls_version_support(TlsVersion::Tls12).await ||
-           self.check_tls_version_support(TlsVersion::Tls13).await {
+        if self.check_tls_version_support(TlsVersion::Tls12).await
+            || self.check_tls_version_support(TlsVersion::Tls13).await
+        {
             // Modern implementations don't support compression
             Some(false)
         } else {
@@ -451,19 +454,19 @@ impl SslScanner {
     async fn test_heartbleed(&self) -> Option<bool> {
         // Test for Heartbleed vulnerability (CVE-2014-0160)
         // This requires sending a malformed heartbeat request and checking for over-read
-        
+
         info!("Testing Heartbleed vulnerability (CVE-2014-0160)");
-        
+
         // Only test on TLS 1.2 and below, as TLS 1.3 doesn't support heartbeat
         let supports_tls12 = self.check_tls_version_support(TlsVersion::Tls12).await;
         let supports_tls11 = self.check_tls_version_support(TlsVersion::Tls11).await;
         let supports_tls10 = self.check_tls_version_support(TlsVersion::Tls10).await;
-        
+
         if !supports_tls12 && !supports_tls11 && !supports_tls10 {
             // Server only supports TLS 1.3 or newer, not vulnerable to Heartbleed
             return Some(false);
         }
-        
+
         // Attempt to perform Heartbleed test
         match self.perform_heartbleed_test().await {
             Ok(vulnerable) => Some(vulnerable),
@@ -476,30 +479,28 @@ impl SslScanner {
 
     async fn perform_heartbleed_test(&self) -> Result<bool> {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        
+
         // Connect to the target
-        let mut stream = timeout(
-            self.config.timeout,
-            TcpStream::connect(&self.config.target)
-        ).await
-        .context("Connection timeout")?
-        .context("Failed to establish TCP connection")?;
-        
+        let mut stream = timeout(self.config.timeout, TcpStream::connect(&self.config.target))
+            .await
+            .context("Connection timeout")?
+            .context("Failed to establish TCP connection")?;
+
         // Perform basic TLS handshake first to establish encryption
         // We need to get to a state where we can send heartbeat messages
-        
+
         // For a proper Heartbleed test, we would need to:
         // 1. Complete TLS handshake
         // 2. Send a heartbeat request with length > actual payload
         // 3. Check if server responds with more data than sent
-        
+
         // This is a simplified implementation that demonstrates the concept
         // In practice, you'd need to implement the full TLS handshake manually
         // or use a low-level TLS library that allows heartbeat manipulation
-        
+
         // Send a malformed heartbeat request
         let heartbeat_request = self.craft_heartbleed_payload();
-        
+
         match stream.write_all(&heartbeat_request).await {
             Ok(_) => {
                 // Try to read response
@@ -525,61 +526,64 @@ impl SslScanner {
     fn craft_heartbleed_payload(&self) -> Vec<u8> {
         // Craft a TLS heartbeat request with malformed length
         // This is a simplified version for demonstration
-        
+
         // TLS Record Header:
         // - Content Type: Heartbeat (24 = 0x18)
         // - Version: TLS 1.2 (0x0303)
         // - Length: 8 bytes
-        
+
         // Heartbeat Message:
         // - Type: Request (1)
         // - Payload Length: 65535 (0xFFFF) - malformed, much larger than actual payload
         // - Payload: 3 bytes "ABC"
         // - Padding: None
-        
+
         let mut payload = Vec::new();
-        
+
         // TLS Record Header
         payload.push(0x18); // Content Type: Heartbeat
         payload.extend_from_slice(&[0x03, 0x03]); // Version: TLS 1.2
         payload.extend_from_slice(&[0x00, 0x08]); // Length: 8 bytes
-        
+
         // Heartbeat Request
         payload.push(0x01); // Type: Request
         payload.extend_from_slice(&[0xFF, 0xFF]); // Payload Length: 65535 (malformed!)
         payload.extend_from_slice(b"ABC"); // Actual payload: only 3 bytes
-        
+
         payload
     }
 
     fn analyze_heartbleed_response(&self, response: &[u8]) -> bool {
         // Analyze the response to determine if Heartbleed vulnerability exists
-        
+
         if response.is_empty() {
             return false;
         }
-        
+
         // Check if this looks like a TLS record
         if response.len() < 5 {
             return false;
         }
-        
+
         // Check for heartbeat response (content type 0x18)
         if response[0] == 0x18 {
             // Extract the length from TLS record header
             let record_length = u16::from_be_bytes([response[3], response[4]]) as usize;
-            
+
             // If the response length is significantly larger than our payload,
             // it might indicate Heartbleed vulnerability
-            if record_length > 100 { // Our payload was only 3 bytes
-                debug!("Potential Heartbleed response detected: {} bytes", record_length);
+            if record_length > 100 {
+                // Our payload was only 3 bytes
+                debug!(
+                    "Potential Heartbleed response detected: {} bytes",
+                    record_length
+                );
                 return true;
             }
         }
-        
+
         false
     }
-
 }
 
 /// Certificate verifier that accepts all certificates but collects them
@@ -646,7 +650,8 @@ impl CertificateCollector {
 
     fn get_certificates(&self) -> Vec<CertificateInfo> {
         let certs = self.certificates.lock().unwrap();
-        certs.iter()
+        certs
+            .iter()
             .filter_map(|cert_der| CertificateInfo::from_der(cert_der).ok())
             .collect()
     }

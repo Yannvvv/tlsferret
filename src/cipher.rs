@@ -1,6 +1,6 @@
 use colored::*;
-use serde::{Deserialize, Serialize};
 use rustls::CipherSuite;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CipherInfo {
@@ -17,11 +17,11 @@ pub struct CipherInfo {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CipherStrength {
-    Null,       // No encryption
-    Weak,       // < 128 bits
-    Medium,     // 128 bits, but with known weaknesses
-    Strong,     // >= 128 bits, no known weaknesses
-    Recommended,// Best practice ciphers
+    Null,        // No encryption
+    Weak,        // < 128 bits
+    Medium,      // 128 bits, but with known weaknesses
+    Strong,      // >= 128 bits, no known weaknesses
+    Recommended, // Best practice ciphers
 }
 
 impl CipherInfo {
@@ -47,20 +47,23 @@ impl CipherInfo {
         }
 
         // CBC mode ciphers in SSLv3 (POODLE)
-        if self.protocol_version == crate::protocol::TlsVersion::Ssl3 && 
-           self.encryption.contains("CBC") {
+        if self.protocol_version == crate::protocol::TlsVersion::Ssl3
+            && self.encryption.contains("CBC")
+        {
             return CipherStrength::Weak;
         }
 
         // Medium strength - older but not immediately vulnerable
-        if self.encryption.contains("CBC") || 
-           (!self.key_exchange.contains("DHE") && !self.key_exchange.contains("ECDHE")) {
+        if self.encryption.contains("CBC")
+            || (!self.key_exchange.contains("DHE") && !self.key_exchange.contains("ECDHE"))
+        {
             return CipherStrength::Medium;
         }
 
         // Strong ciphers with PFS and AEAD
-        if (self.key_exchange.contains("DHE") || self.key_exchange.contains("ECDHE")) &&
-           (self.encryption.contains("GCM") || self.encryption.contains("CHACHA20")) {
+        if (self.key_exchange.contains("DHE") || self.key_exchange.contains("ECDHE"))
+            && (self.encryption.contains("GCM") || self.encryption.contains("CHACHA20"))
+        {
             return CipherStrength::Recommended;
         }
 
@@ -103,12 +106,12 @@ pub fn get_rustls_cipher_suites() -> Vec<CipherSuite> {
 
 /// Convert rustls CipherSuite to our CipherInfo
 pub fn rustls_to_cipher_info(suite: CipherSuite) -> CipherInfo {
-    // This is a simplified mapping - in a real implementation, 
+    // This is a simplified mapping - in a real implementation,
     // we'd have a comprehensive database of cipher suite information
     let suite_name = format!("{:?}", suite);
     // Simplified - we'll use 0 as placeholder for cipher suite ID
     let suite_id = 0u16;
-    
+
     // Parse cipher suite name to extract components and determine version
     let (kex, auth, enc, bits, mac, version) = parse_cipher_suite_name(&suite_name);
 
@@ -125,20 +128,57 @@ pub fn rustls_to_cipher_info(suite: CipherSuite) -> CipherInfo {
     }
 }
 
-fn parse_cipher_suite_name(name: &str) -> (String, String, String, u16, String, crate::protocol::TlsVersion) {
+fn parse_cipher_suite_name(
+    name: &str,
+) -> (
+    String,
+    String,
+    String,
+    u16,
+    String,
+    crate::protocol::TlsVersion,
+) {
     use crate::protocol::TlsVersion;
-    
+
     // Parse common cipher suite patterns
     if name.contains("TLS13") {
         // TLS 1.3 cipher suites
         if name.contains("AES_256_GCM") {
-            ("TLS1.3".to_string(), "TLS1.3".to_string(), "AES_256_GCM".to_string(), 256, "SHA384".to_string(), TlsVersion::Tls13)
+            (
+                "TLS1.3".to_string(),
+                "TLS1.3".to_string(),
+                "AES_256_GCM".to_string(),
+                256,
+                "SHA384".to_string(),
+                TlsVersion::Tls13,
+            )
         } else if name.contains("AES_128_GCM") {
-            ("TLS1.3".to_string(), "TLS1.3".to_string(), "AES_128_GCM".to_string(), 128, "SHA256".to_string(), TlsVersion::Tls13)
+            (
+                "TLS1.3".to_string(),
+                "TLS1.3".to_string(),
+                "AES_128_GCM".to_string(),
+                128,
+                "SHA256".to_string(),
+                TlsVersion::Tls13,
+            )
         } else if name.contains("CHACHA20_POLY1305") {
-            ("TLS1.3".to_string(), "TLS1.3".to_string(), "CHACHA20_POLY1305".to_string(), 256, "SHA256".to_string(), TlsVersion::Tls13)
+            (
+                "TLS1.3".to_string(),
+                "TLS1.3".to_string(),
+                "CHACHA20_POLY1305".to_string(),
+                256,
+                "SHA256".to_string(),
+                TlsVersion::Tls13,
+            )
         } else {
-            ("TLS1.3".to_string(), "TLS1.3".to_string(), "Unknown".to_string(), 256, "Unknown".to_string(), TlsVersion::Tls13)
+            (
+                "TLS1.3".to_string(),
+                "TLS1.3".to_string(),
+                "Unknown".to_string(),
+                256,
+                "Unknown".to_string(),
+                TlsVersion::Tls13,
+            )
         }
     } else {
         // TLS 1.2 and below - default to TLS 1.2 since rustls mainly supports TLS 1.2+
@@ -151,7 +191,7 @@ fn parse_cipher_suite_name(name: &str) -> (String, String, String, u16, String, 
         } else {
             "Unknown"
         };
-        
+
         let auth = if name.contains("ECDSA") {
             "ECDSA"
         } else if name.contains("RSA") {
@@ -159,7 +199,7 @@ fn parse_cipher_suite_name(name: &str) -> (String, String, String, u16, String, 
         } else {
             "Unknown"
         };
-        
+
         let (enc, bits) = if name.contains("AES_256_GCM") {
             ("AES_256_GCM", 256)
         } else if name.contains("AES_128_GCM") {
@@ -169,7 +209,7 @@ fn parse_cipher_suite_name(name: &str) -> (String, String, String, u16, String, 
         } else {
             ("Unknown", 0)
         };
-        
+
         let mac = if name.contains("SHA384") {
             "SHA384"
         } else if name.contains("SHA256") {
@@ -177,8 +217,15 @@ fn parse_cipher_suite_name(name: &str) -> (String, String, String, u16, String, 
         } else {
             "Unknown"
         };
-        
-        (kex.to_string(), auth.to_string(), enc.to_string(), bits, mac.to_string(), TlsVersion::Tls12)
+
+        (
+            kex.to_string(),
+            auth.to_string(),
+            enc.to_string(),
+            bits,
+            mac.to_string(),
+            TlsVersion::Tls12,
+        )
     }
 }
 
@@ -196,7 +243,12 @@ mod tests {
     use super::*;
     use crate::protocol::TlsVersion;
 
-    fn create_test_cipher(encryption: &str, bits: u16, auth: &str, version: TlsVersion) -> CipherInfo {
+    fn create_test_cipher(
+        encryption: &str,
+        bits: u16,
+        auth: &str,
+        version: TlsVersion,
+    ) -> CipherInfo {
         CipherInfo {
             id: 0x0001,
             iana_name: format!("TLS_TEST_{}", encryption),

@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use x509_parser::prelude::*;
 use der_parser::oid::Oid;
-use sha2::{Sha256, Digest};
+use serde::{Deserialize, Serialize};
 use sha1::Sha1;
+use sha2::{Digest, Sha256};
+use x509_parser::prelude::*;
 
 /// Convert ASN1Time to chrono::DateTime<Utc>
 fn offset_to_chrono(asn1_time: x509_parser::time::ASN1Time) -> DateTime<Utc> {
@@ -39,46 +39,46 @@ pub struct CertificateInfo {
 impl CertificateInfo {
     pub fn from_der(der_data: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
         let (_, cert) = X509Certificate::from_der(der_data)?;
-        
+
         let subject = cert.subject().to_string();
         let issuer = cert.issuer().to_string();
         let serial = cert.raw_serial_as_string();
-        
+
         let not_before = offset_to_chrono(cert.validity().not_before);
         let not_after = offset_to_chrono(cert.validity().not_after);
-        
+
         let sig_alg = oid_to_algorithm_name(&cert.signature_algorithm.algorithm);
         let is_self_signed = cert.subject() == cert.issuer();
-        
+
         let now = Utc::now();
         let is_expired = now > not_after;
         let days_until_expiry = (not_after - now).num_days();
-        
+
         // Extract public key info
         let pki = cert.public_key();
         let alg_name = oid_to_algorithm_name(&pki.algorithm.algorithm);
-        let key_size = estimate_key_size(&pki);
+        let key_size = estimate_key_size(pki);
         let (pub_key_alg, pub_key_size) = (alg_name, key_size);
-        
+
         // Extract ECC curve information
-        let (ecc_curve_name, ecc_key_strength) = extract_ecc_info(&pki);
-        
+        let (ecc_curve_name, ecc_key_strength) = extract_ecc_info(pki);
+
         // Extract SANs
         let san = extract_san_names(&cert);
-        
+
         // Calculate fingerprints
         let mut hasher_sha256 = Sha256::new();
-        hasher_sha256.update(&der_data);
+        hasher_sha256.update(der_data);
         let fingerprint_sha256 = hex::encode(hasher_sha256.finalize());
-        
+
         let mut hasher_sha1 = Sha1::new();
-        hasher_sha1.update(&der_data);
+        hasher_sha1.update(der_data);
         let fingerprint_sha1 = hex::encode(hasher_sha1.finalize());
-        
+
         // Check for weak crypto
         let weak_signature = is_weak_signature(&sig_alg);
         let weak_key = is_weak_key(&pub_key_alg, pub_key_size);
-        
+
         Ok(CertificateInfo {
             subject,
             issuer,
@@ -100,32 +100,37 @@ impl CertificateInfo {
             weak_key,
         })
     }
-    
+
     pub fn validation_issues(&self) -> Vec<String> {
         let mut issues = Vec::new();
-        
+
         if self.is_expired {
             issues.push("Certificate has expired".to_string());
         } else if self.days_until_expiry < 30 {
-            issues.push(format!("Certificate expires in {} days", self.days_until_expiry));
-        }
-        
-        if self.weak_signature {
-            issues.push(format!("Weak signature algorithm: {}", self.signature_algorithm));
-        }
-        
-        if self.weak_key {
             issues.push(format!(
-                "Weak key: {} {} bits", 
-                self.public_key_algorithm, 
-                self.public_key_size
+                "Certificate expires in {} days",
+                self.days_until_expiry
             ));
         }
-        
+
+        if self.weak_signature {
+            issues.push(format!(
+                "Weak signature algorithm: {}",
+                self.signature_algorithm
+            ));
+        }
+
+        if self.weak_key {
+            issues.push(format!(
+                "Weak key: {} {} bits",
+                self.public_key_algorithm, self.public_key_size
+            ));
+        }
+
         if self.is_self_signed {
             issues.push("Self-signed certificate".to_string());
         }
-        
+
         issues
     }
 }
@@ -143,7 +148,8 @@ fn oid_to_algorithm_name(oid: &Oid) -> String {
         "1.2.840.113549.1.1.1" => "RSA",
         "1.2.840.10045.2.1" => "EC",
         _ => &oid_str,
-    }.to_string()
+    }
+    .to_string()
 }
 
 fn estimate_key_size(pki: &SubjectPublicKeyInfo) -> usize {
@@ -167,9 +173,9 @@ fn estimate_key_size(pki: &SubjectPublicKeyInfo) -> usize {
             // EC keys - estimate based on key data length
             let data_len = pki.subject_public_key.data.len();
             match data_len {
-                65 => 256,   // P-256
-                97 => 384,   // P-384
-                133 => 521,  // P-521
+                65 => 256,  // P-256
+                97 => 384,  // P-384
+                133 => 521, // P-521
                 _ => data_len * 4,
             }
         }
@@ -179,13 +185,14 @@ fn estimate_key_size(pki: &SubjectPublicKeyInfo) -> usize {
 
 fn extract_san_names(cert: &X509Certificate) -> Vec<String> {
     let mut names = Vec::new();
-    
+
     // Try to find Subject Alternative Name extension
     for ext in cert.extensions() {
-        if ext.oid.to_id_string() == "2.5.29.17" { // SAN OID
+        if ext.oid.to_id_string() == "2.5.29.17" {
+            // SAN OID
             // Parse the extension value as SubjectAlternativeName
             use x509_parser::extensions::ParsedExtension;
-            
+
             if let ParsedExtension::SubjectAlternativeName(san_ext) = ext.parsed_extension() {
                 for general_name in &san_ext.general_names {
                     use x509_parser::extensions::GeneralName;
@@ -205,7 +212,7 @@ fn extract_san_names(cert: &X509Certificate) -> Vec<String> {
                                     // IPv6
                                     let mut segments = Vec::new();
                                     for i in (0..16).step_by(2) {
-                                        segments.push(format!("{:x}{:x}", ip[i], ip[i+1]));
+                                        segments.push(format!("{:x}{:x}", ip[i], ip[i + 1]));
                                     }
                                     names.push(segments.join(":"));
                                 }
@@ -229,7 +236,7 @@ fn extract_san_names(cert: &X509Certificate) -> Vec<String> {
             }
         }
     }
-    
+
     // If no SANs found, return empty vector (not an error)
     names
 }
@@ -237,19 +244,20 @@ fn extract_san_names(cert: &X509Certificate) -> Vec<String> {
 /// Extract ECC curve information from public key
 fn extract_ecc_info(pki: &SubjectPublicKeyInfo) -> (Option<String>, Option<u16>) {
     let oid_str = pki.algorithm.algorithm.to_id_string();
-    
-    if oid_str == "1.2.840.10045.2.1" { // EC public key OID
+
+    if oid_str == "1.2.840.10045.2.1" {
+        // EC public key OID
         // Try to determine curve from key size or parameters
         let key_size = pki.subject_public_key.data.len();
-        
+
         // Common ECC curves and their approximate sizes
         let (curve_name, strength) = match key_size {
-            65 => ("secp256r1", 256),   // P-256
-            97 => ("secp384r1", 384),   // P-384
-            133 => ("secp521r1", 521),  // P-521
+            65 => ("secp256r1", 256),                  // P-256
+            97 => ("secp384r1", 384),                  // P-384
+            133 => ("secp521r1", 521),                 // P-521
             _ => ("Unknown ECC", key_size as u16 * 4), // Rough estimate
         };
-        
+
         (Some(curve_name.to_string()), Some(strength))
     } else {
         // Not an ECC key
@@ -271,14 +279,18 @@ fn is_weak_key(algorithm: &str, size: usize) -> bool {
 
 /// Parse certificate chain from TLS handshake
 #[allow(dead_code)]
-pub fn parse_certificate_chain(chain_data: &[u8]) -> Result<Vec<CertificateInfo>, Box<dyn std::error::Error>> {
+pub fn parse_certificate_chain(
+    chain_data: &[u8],
+) -> Result<Vec<CertificateInfo>, Box<dyn std::error::Error>> {
     let mut certificates = Vec::new();
     let mut data = chain_data;
-    
+
     while !data.is_empty() {
         match X509Certificate::from_der(data) {
             Ok((remaining, _cert)) => {
-                if let Ok(cert_info) = CertificateInfo::from_der(&data[..data.len() - remaining.len()]) {
+                if let Ok(cert_info) =
+                    CertificateInfo::from_der(&data[..data.len() - remaining.len()])
+                {
                     certificates.push(cert_info);
                 }
                 data = remaining;
@@ -286,6 +298,6 @@ pub fn parse_certificate_chain(chain_data: &[u8]) -> Result<Vec<CertificateInfo>
             Err(_) => break,
         }
     }
-    
+
     Ok(certificates)
 }
