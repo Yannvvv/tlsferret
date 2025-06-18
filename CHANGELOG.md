@@ -40,10 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Build & Release**
   - Automated multi-platform builds via GitHub Actions
-  - Pre-compiled binaries for 5 platforms:
-    - Linux (x86_64, ARM64)
+  - Pre-compiled binaries for 4 platforms:
+    - Linux x86_64
     - macOS (Intel, Apple Silicon)
-    - Windows (x86_64)
+    - Windows x86_64
   - SHA256 checksums for security verification
   - Dual licensing (MIT OR Apache-2.0)
 

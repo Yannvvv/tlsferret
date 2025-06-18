@@ -54,9 +54,6 @@ Download the latest release for your platform from the [Releases page](https://g
 # x86_64
 curl -L https://github.com/shyuan/tlsferret/releases/latest/download/tlsferret-v0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
 ./tlsferret --help
-
-# ARM64
-curl -L https://github.com/shyuan/tlsferret/releases/latest/download/tlsferret-v0.1.0-aarch64-unknown-linux-gnu.tar.gz | tar xz
 ```
 
 #### macOS
