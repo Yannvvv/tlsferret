@@ -45,10 +45,37 @@ TLSferret supports STARTTLS for the following protocols:
 
 ## 🛠️ Installation
 
-### Prerequisites
+### 📦 Pre-compiled Binaries (Recommended)
+
+Download the latest release for your platform from the [Releases page](https://github.com/shyuan/tlsferret/releases):
+
+#### Linux
+```bash
+# x86_64
+curl -L https://github.com/shyuan/tlsferret/releases/latest/download/tlsferret-v0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+./tlsferret --help
+
+# ARM64
+curl -L https://github.com/shyuan/tlsferret/releases/latest/download/tlsferret-v0.1.0-aarch64-unknown-linux-gnu.tar.gz | tar xz
+```
+
+#### macOS
+```bash
+# Intel Mac
+curl -L https://github.com/shyuan/tlsferret/releases/latest/download/tlsferret-v0.1.0-x86_64-apple-darwin.tar.gz | tar xz
+
+# Apple Silicon (M1/M2)
+curl -L https://github.com/shyuan/tlsferret/releases/latest/download/tlsferret-v0.1.0-aarch64-apple-darwin.tar.gz | tar xz
+```
+
+#### Windows
+Download `tlsferret-v0.1.0-x86_64-pc-windows-msvc.zip` from the releases page and extract.
+
+### 🔧 From Source
+
+#### Prerequisites
 - Rust 1.70+ and Cargo
 
-### From Source
 ```bash
 git clone https://github.com/shyuan/tlsferret.git
 cd tlsferret

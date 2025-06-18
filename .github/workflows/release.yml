@@ -1,0 +1,231 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_version: ${{ env.RELEASE_VERSION }}
+    steps:
+      - name: Get release version from tag
+        run: |
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          echo "version is: ${{ env.RELEASE_VERSION }}"
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.RELEASE_VERSION }}
+          release_name: 🦫 TLSferret ${{ env.RELEASE_VERSION }}
+          body: |
+            # 🦫 TLSferret ${{ env.RELEASE_VERSION }}
+            
+            Fast SSL/TLS security scanner written in Rust.
+            
+            ## Download
+            
+            Choose the appropriate binary for your platform:
+            
+            ### Linux
+            - **x86_64**: `tlsferret-${{ env.RELEASE_VERSION }}-x86_64-unknown-linux-gnu.tar.gz`
+            - **ARM64**: `tlsferret-${{ env.RELEASE_VERSION }}-aarch64-unknown-linux-gnu.tar.gz`
+            
+            ### macOS
+            - **Intel**: `tlsferret-${{ env.RELEASE_VERSION }}-x86_64-apple-darwin.tar.gz`
+            - **Apple Silicon**: `tlsferret-${{ env.RELEASE_VERSION }}-aarch64-apple-darwin.tar.gz`
+            
+            ### Windows
+            - **x86_64**: `tlsferret-${{ env.RELEASE_VERSION }}-x86_64-pc-windows-msvc.zip`
+            
+            ## Quick Start
+            
+            ```bash
+            # Extract the archive and run
+            tlsferret example.com
+            
+            # STARTTLS example
+            tlsferret smtp.example.com:587 --starttls smtp
+            ```
+            
+            ## What's New
+            
+            See the [CHANGELOG](https://github.com/shyuan/tlsferret/commits/${{ env.RELEASE_VERSION }}) for details.
+            
+            ## Checksums
+            
+            SHA256 checksums are provided in `checksums.txt`.
+          draft: false
+          prerelease: false
+
+  build-release:
+    name: Build Release
+    needs: ['create-release']
+    runs-on: ${{ matrix.build.os }}
+    env:
+      CARGO: cargo
+    strategy:
+      matrix:
+        build:
+          # Linux
+          - {
+              NAME: linux-x64-gnu,
+              OS: ubuntu-20.04,
+              TOOLCHAIN: stable,
+              TARGET: x86_64-unknown-linux-gnu,
+            }
+          - {
+              NAME: linux-arm64-gnu,
+              OS: ubuntu-20.04,
+              TOOLCHAIN: stable,
+              TARGET: aarch64-unknown-linux-gnu,
+            }
+          # macOS
+          - {
+              NAME: darwin-x64,
+              OS: macos-12,
+              TOOLCHAIN: stable,
+              TARGET: x86_64-apple-darwin,
+            }
+          - {
+              NAME: darwin-arm64,
+              OS: macos-12,
+              TOOLCHAIN: stable,
+              TARGET: aarch64-apple-darwin,
+            }
+          # Windows
+          - {
+              NAME: windows-x64,
+              OS: windows-2019,
+              TOOLCHAIN: stable,
+              TARGET: x86_64-pc-windows-msvc,
+            }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set the release version
+        run: echo "RELEASE_VERSION=${GITHUB_REF:10}" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.build.TOOLCHAIN }}
+          target: ${{ matrix.build.TARGET }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cross
+        if: matrix.build.TARGET == 'aarch64-unknown-linux-gnu'
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+          echo "CARGO=cross" >> $GITHUB_ENV
+
+      - name: Build
+        run: ${{ env.CARGO }} build --release --locked --target ${{ matrix.build.TARGET }}
+
+      - name: Strip binary (linux and macos)
+        if: matrix.build.OS == 'ubuntu-20.04' || matrix.build.OS == 'macos-12'
+        run: |
+          if [ "${{ matrix.build.TARGET }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu
+            aarch64-linux-gnu-strip "target/${{ matrix.build.TARGET }}/release/tlsferret"
+          else
+            strip "target/${{ matrix.build.TARGET }}/release/tlsferret"
+          fi
+
+      - name: Prepare build artifacts [Windows]
+        if: matrix.build.OS == 'windows-2019'
+        run: |
+          cd target/${{ matrix.build.TARGET }}/release
+          7z a ../../../tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip tlsferret.exe
+          cd -
+
+      - name: Prepare build artifacts [-nix]
+        if: matrix.build.OS != 'windows-2019'
+        run: |
+          cd target/${{ matrix.build.TARGET }}/release
+          tar czvf ../../../tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz tlsferret
+          cd -
+
+      - name: Generate SHA256
+        run: |
+          if [ "${{ matrix.build.OS }}" = "windows-2019" ]; then
+            certutil -hashfile tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip SHA256 | grep -E [A-Fa-f0-9]{64} > tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip.sha256
+          else
+            shasum -a 256 tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz > tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz.sha256
+          fi
+        shell: bash
+
+      - name: Upload build artifacts [Windows]
+        if: matrix.build.OS == 'windows-2019'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip
+          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload build artifacts [Windows SHA256]
+        if: matrix.build.OS == 'windows-2019'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip.sha256
+          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.zip.sha256
+          asset_content_type: text/plain
+
+      - name: Upload build artifacts [-nix]
+        if: matrix.build.OS != 'windows-2019'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz
+          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload build artifacts [-nix SHA256]
+        if: matrix.build.OS != 'windows-2019'
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz.sha256
+          asset_name: tlsferret-${{ env.RELEASE_VERSION }}-${{ matrix.build.TARGET }}.tar.gz.sha256
+          asset_content_type: text/plain
