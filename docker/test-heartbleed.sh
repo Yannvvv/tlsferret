@@ -40,21 +40,21 @@ fi
 
 # Build and start the vulnerable server
 print_status "Building Heartbleed vulnerable server..."
-docker-compose -f docker-compose.yml build heartbleed-server
+docker compose -f docker-compose.yml build heartbleed-server
 
 print_status "Starting Heartbleed vulnerable server..."
-docker-compose -f docker-compose.yml up -d heartbleed-server
+docker compose -f docker-compose.yml up -d heartbleed-server
 
 # Wait for server to start
 print_status "Waiting for server to start (10 seconds)..."
 sleep 10
 
 # Check if server is running
-if docker-compose -f docker-compose.yml ps heartbleed-server | grep -q "Up"; then
+if docker compose -f docker-compose.yml ps heartbleed-server | grep -q "Up"; then
     print_success "Heartbleed vulnerable server is running on localhost:8443"
 else
     print_error "Failed to start Heartbleed vulnerable server"
-    docker-compose -f docker-compose.yml logs heartbleed-server
+    docker compose -f docker-compose.yml logs heartbleed-server
     exit 1
 fi
 
@@ -97,7 +97,7 @@ echo "  # Test with nmap Heartbleed script:"
 echo "    nmap -p 8443 --script ssl-heartbleed localhost"
 echo ""
 echo "  # Stop the test environment:"
-echo "    docker-compose -f docker-compose.yml down"
+echo "    docker compose -f docker-compose.yml down"
 
 echo ""
 print_success "Heartbleed test environment is ready!"
