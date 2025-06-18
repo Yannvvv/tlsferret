@@ -45,8 +45,8 @@ thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# Network utilities
-trust-dns-resolver = "0.23"
+# Network utilities - migrated from trust-dns-resolver to hickory-resolver
+hickory-resolver = "0.24"
 ipnet = "2"
 
 # Date/time handling
@@ -72,3 +72,4 @@ lto = true
 codegen-units = 1
 strip = true
 opt-level = "z"
+

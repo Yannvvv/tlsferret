@@ -208,7 +208,7 @@ async fn resolve_target(
     ipv4_only: bool,
     ipv6_only: bool,
 ) -> Result<SocketAddr> {
-    use trust_dns_resolver::TokioAsyncResolver;
+    use hickory_resolver::TokioAsyncResolver;
 
     // Try to parse as IP address first
     if let Ok(ip) = target.parse::<IpAddr>() {
